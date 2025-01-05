@@ -16,7 +16,7 @@ E.G video1_12.mp4 would result in a compressed version of the video with only th
 	* `$debug`: Set to `$true` for verbose output, `$false` to disable.
 
 2. Place your video files in the folder
-3. Run the script by executing `.\run_compress.bat` 
+3. Run the script by executing `.\run_compress.bat` - This batch file is just to avoid having to type out the commands to allow script execution in powershell.
 
 ## Requirements
 
