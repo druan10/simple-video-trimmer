@@ -1,4 +1,4 @@
-# Simple Video File Compressor
+# Simple Video File Trimmer/Compressor
 
 A PowerShell script to compress video files in a folder using FFmpeg.
 
