@@ -1,6 +1,6 @@
 # Simple Video File Trimmer/Compressor
 
-A PowerShell script to compress video files in a folder using FFmpeg.
+A PowerShell script to compress and trim video files in a folder using FFmpeg.
 
 I use obs pretty often but I don't care about editing too much so I made this simple script to trim videos using ffmpeg.
 The script both compresses the videos, and keeps only the last x seconds of the video, based on the filename.
