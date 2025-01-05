@@ -21,4 +21,4 @@ E.G video1_12.mp4 would result in a compressed version of the video with only th
 ## Requirements
 
 * FFmpeg must be installed and available in your system's PATH.
-* PowerShell 3 or later (on Windows) or PowerShell Core (on macOS/Linux).
+* PowerShell
