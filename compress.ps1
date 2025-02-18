@@ -27,8 +27,8 @@ Get-ChildItem -Path $videoFolder -File | ForEach-Object {
     # Process supported file types
     if ($file.Extension -in ".mp4", ".mkv") {
         $inputFile = $file.FullName
-        $fileName = $file.BaseName
-        $outputFile = Join-Path -Path $outputFolder -ChildPath "$($file.BaseName)_timestamp_$timestamp.mp4"
+        $fileName = [System.IO.Path]::GetFileNameWithoutExtension($file.Name)  # Extract filename without extension
+        $outputFile = Join-Path -Path $outputFolder -ChildPath "$fileName`_processed_$timestamp.mp4"
 
         if ($debug) {
             Write-Host "[DEBUG] Input file: $inputFile"
@@ -36,28 +36,42 @@ Get-ChildItem -Path $videoFolder -File | ForEach-Object {
             Write-Host "[DEBUG] File name without extension: $fileName"
         }
 
-        # Extract trim duration from the filename (last underscore + number)
-        if ($fileName -match "_(\d+)$") {
-            $trimDuration = $matches[1]
-            if ($debug) { Write-Host "[DEBUG] Extracted trim duration: $trimDuration" }
+        # Extract trim duration (x) and optional remove duration (y)
+        if ($fileName -match "_(\d+)(?:-(\d+))?$") {
+            $trimDuration = [int]$matches[1]
+            $removeDuration = if ($matches[2]) { [int]$matches[2] } else { 0 }
 
-            # Run ffmpeg command to process the video
+            if ($debug) { 
+                Write-Host "[DEBUG] Extracted trim duration (x): $trimDuration seconds"
+                Write-Host "[DEBUG] Extracted remove duration (y): $removeDuration seconds"
+            }
+
+            # Ensure valid trim durations
+            $startSeconds = $trimDuration - $removeDuration
+            if ($startSeconds -le 0) {
+                Write-Host "[ERROR] Invalid trim configuration: x ($trimDuration) must be greater than y ($removeDuration). Skipping file: $inputFile"
+                return
+            }
+
+            if ($debug) { Write-Host "[DEBUG] Calculated clip duration: $startSeconds seconds" }
+
+            # Run ffmpeg command to trim video correctly
             $ffmpegCommand = @(
                 "ffmpeg",
-                "-sseof", "-$trimDuration",
-                "-i", "`"$inputFile`"",
-                "-filter_complex", "`"[0:a]amerge=inputs=1[aout]`"",
-                "-map", "0:v",
-                "-map", "`"[aout]`"",
+                "-sseof", "-$trimDuration",  # Seek from end (last X seconds)
+                "-i", "`"$inputFile`"",      # Input file
+                "-ss", "00:00:$removeDuration", # Remove Y seconds from start
                 "-c:v", "libx264",
                 "-preset", "slow",
                 "-crf", "18",
                 "-c:a", "aac",
                 "-ac", "2",
                 "-movflags", "+faststart",
-                "`"$outputFile`""
+                "`"$outputFile`"" # Output file
             )
+
             if ($debug) { Write-Host "[DEBUG] Running ffmpeg command: $($ffmpegCommand -join ' ')" }
+
             Start-Process -NoNewWindow -Wait -FilePath $ffmpegCommand[0] -ArgumentList $ffmpegCommand[1..$ffmpegCommand.Length]
 
             # Check for errors
@@ -67,7 +81,7 @@ Get-ChildItem -Path $videoFolder -File | ForEach-Object {
                 Write-Host "[ERROR] Failed to process: $inputFile"
             }
         } else {
-            Write-Host "[ERROR] Invalid trim duration in filename: $fileName. Skipping file."
+            Write-Host "[ERROR] Invalid filename format (expected _x-y). Skipping file: $fileName"
         }
     } else {
         if ($debug) { Write-Host "[DEBUG] Skipping unsupported file type: $($file.FullName)" }
