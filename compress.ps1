@@ -48,26 +48,44 @@ Get-ChildItem -Path $videoFolder -File | ForEach-Object {
 
             # Ensure valid trim durations
             $startSeconds = $trimDuration - $removeDuration
+
             if ($startSeconds -le 0) {
                 Write-Host "[ERROR] Invalid trim configuration: x ($trimDuration) must be greater than y ($removeDuration). Skipping file: $inputFile"
                 return
             }
 
-            if ($debug) { Write-Host "[DEBUG] Calculated clip duration: $startSeconds seconds" }
+            # Get total video duration using ffprobe
+            $videoDuration = & ffprobe -i "`"$inputFile`"" -show_entries format=duration -v quiet -of csv="p=0"
+            $videoDuration = [math]::Round([double]$videoDuration)
+
+            # Calculate correct start time (For actual trimming)
+            $startTime = $videoDuration - $trimDuration
+            $duration = $trimDuration - $removeDuration
+
+            if ($startTime -lt 0) {
+                Write-Host "[ERROR] Calculated start time is negative. Skipping file: $inputFile"
+                return
+            }
+
+            if ($debug) {
+                Write-Host "[DEBUG] Video duration: $videoDuration seconds"
+                Write-Host "[DEBUG] Calculated start time: $startTime seconds"
+                Write-Host "[DEBUG] Clip duration: $duration seconds"
+            }
 
             # Run ffmpeg command to trim video correctly
             $ffmpegCommand = @(
                 "ffmpeg",
-                "-sseof", "-$trimDuration",  # Seek from end (last X seconds)
-                "-i", "`"$inputFile`"",      # Input file
-                "-ss", "00:00:$removeDuration", # Remove Y seconds from start
+                "-i", "`"$inputFile`"", # Input file
+                "-ss", "$startTime", # Seek to calculated start time
+                "-t", "$duration", # Duration to extract
                 "-c:v", "libx264",
                 "-preset", "slow",
                 "-crf", "18",
                 "-c:a", "aac",
                 "-ac", "2",
                 "-movflags", "+faststart",
-                "`"$outputFile`"" # Output file
+                "`"$outputFile`""          # Output file
             )
 
             if ($debug) { Write-Host "[DEBUG] Running ffmpeg command: $($ffmpegCommand -join ' ')" }
@@ -77,13 +95,17 @@ Get-ChildItem -Path $videoFolder -File | ForEach-Object {
             # Check for errors
             if ($?) {
                 Write-Host "[INFO] Successfully processed: $inputFile"
-            } else {
+            }
+            else {
                 Write-Host "[ERROR] Failed to process: $inputFile"
             }
-        } else {
+
+        }
+        else {
             Write-Host "[ERROR] Invalid filename format (expected _x-y). Skipping file: $fileName"
         }
-    } else {
+    }
+    else {
         if ($debug) { Write-Host "[DEBUG] Skipping unsupported file type: $($file.FullName)" }
     }
 }
