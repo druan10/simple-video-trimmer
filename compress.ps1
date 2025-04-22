@@ -82,8 +82,12 @@ Get-ChildItem -Path $videoFolder -File | ForEach-Object {
             $mergeInputs = ""
 
             for ($i = 0; $i -lt $audioStreams; $i++) {
-                # Add processing for each audio stream
-                $filterComplex += "[0:a:$i]volume=1.0,compand=attacks=0:points=-80/-80|-45/-15|-27/-9|0/-7|20/-7:gain=1[a$i];"
+                # Define volume level for each track (adjust these values as needed)
+                $volumeLevels = @(1.0, 0.7, 0.5, 0.3) # Example: Track 1 = 100%, Track 2 = 70%, Track 3 = 50%, Track 4 = 30%
+                $volumeLevel = if ($i -lt $volumeLevels.Length) { $volumeLevels[$i] } else { 1.0 }
+                
+                # Process each audio stream: compress/normalize first, then adjust volume
+                $filterComplex += "[0:a:$i]compand=attacks=0:points=-80/-80|-45/-15|-27/-9|0/-7|20/-7:gain=1,volume=${volumeLevel}[a$i];"
                 $mergeInputs += "[a$i]"
             }
 
@@ -143,6 +147,7 @@ Get-ChildItem -Path $videoFolder -File | ForEach-Object {
         if ($debug) { Write-Host "[DEBUG] Skipping unsupported file type: $($file.FullName)" }
     }
 }
+
 
 
 
