@@ -73,31 +73,65 @@ Get-ChildItem -Path $videoFolder -File | ForEach-Object {
                 Write-Host "[DEBUG] Clip duration: $duration seconds"
             }
 
-            # Run ffmpeg command to trim video correctly
-            $ffmpegCommand = @(
-                "ffmpeg",
-                "-i", "`"$inputFile`"", # Input file
-                "-ss", "$startTime", # Seek to calculated start time
-                "-t", "$duration", # Duration to extract
+            # Get number of audio streams
+            $audioStreams = & ffprobe -i "`"$inputFile`"" -show_entries stream=codec_type -select_streams a -v 0 -of compact | Measure-Object -Line | Select-Object -ExpandProperty Lines
+            if ($debug) { Write-Host "[DEBUG] Number of audio streams found: $audioStreams" }
+
+            # Build the filter complex string based on number of audio streams
+            $filterComplex = ""
+            $mergeInputs = ""
+
+            for ($i = 0; $i -lt $audioStreams; $i++) {
+                # Add processing for each audio stream
+                $filterComplex += "[0:a:$i]volume=1.0,compand=attacks=0:points=-80/-80|-45/-15|-27/-9|0/-7|20/-7:gain=1[a$i];"
+                $mergeInputs += "[a$i]"
+            }
+
+            # Add the amerge and loudnorm if we have audio streams
+            if ($audioStreams -gt 0) {
+                $filterComplex += "$mergeInputs amerge=inputs=$audioStreams,loudnorm=I=-16:TP=-1.5:LRA=11[aout]"
+            }
+
+            # Construct the FFmpeg command string
+            $ffmpegArgs = @(
+                "-i", "`"$inputFile`"",
+                "-ss", "$startTime",
+                "-t", "$duration",
                 "-c:v", "libx264",
                 "-preset", "slow",
-                "-crf", "18",
+                "-crf", "18"
+            )
+
+            # Add audio processing if we have audio streams
+            if ($audioStreams -gt 0) {
+                $ffmpegArgs += @(
+                    "-filter_complex", "`"$filterComplex`"",
+                    "-map", "0:v",
+                    "-map", "[aout]"
+                )
+            }
+
+            $ffmpegArgs += @(
                 "-c:a", "aac",
                 "-ac", "2",
                 "-movflags", "+faststart",
-                "`"$outputFile`""          # Output file
+                "`"$outputFile`""
             )
 
-            if ($debug) { Write-Host "[DEBUG] Running ffmpeg command: $($ffmpegCommand -join ' ')" }
-
-            Start-Process -NoNewWindow -Wait -FilePath $ffmpegCommand[0] -ArgumentList $ffmpegCommand[1..$ffmpegCommand.Length]
-
-            # Check for errors
-            if ($?) {
-                Write-Host "[INFO] Successfully processed: $inputFile"
+            if ($debug) { 
+                Write-Host "[DEBUG] Audio streams found: $audioStreams"
+                Write-Host "[DEBUG] Filter complex: $filterComplex"
+                Write-Host "[DEBUG] FFmpeg arguments: $($ffmpegArgs -join ' ')"
             }
-            else {
-                Write-Host "[ERROR] Failed to process: $inputFile"
+
+            # Execute FFmpeg command
+            $process = Start-Process -FilePath "ffmpeg" -ArgumentList $ffmpegArgs -NoNewWindow -Wait -PassThru
+
+            # Check the exit code
+            if ($process.ExitCode -eq 0) {
+                Write-Host "[INFO] Successfully processed: $inputFile"
+            } else {
+                Write-Host "[ERROR] Failed to process: $inputFile (Exit code: $($process.ExitCode))"
             }
 
         }
@@ -109,3 +143,6 @@ Get-ChildItem -Path $videoFolder -File | ForEach-Object {
         if ($debug) { Write-Host "[DEBUG] Skipping unsupported file type: $($file.FullName)" }
     }
 }
+
+
+
