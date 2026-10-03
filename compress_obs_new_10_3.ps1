@@ -1,8 +1,11 @@
 # Enable debug logging (set to $true for verbose output, $false to disable)
 $debug = $true
 
+# If $true, keep each audio track separate in the output file instead of merging them into one.
+$keepTracksSeparate = $true
+
 # Define input and output folders
-$videoFolder = "."
+$videoFolder = "input"
 $outputFolder = "output"
 
 # Create output folder if it doesn't exist
@@ -14,8 +17,8 @@ if (!(Test-Path -Path $outputFolder)) {
 $timestamp = (Get-Date).ToString("yyyy-MM-dd_HH-mm-ss")
 if ($debug) { Write-Host "[DEBUG] Current timestamp: $timestamp" }
 
-# Loop through all video files in the folder
-Get-ChildItem -Path $videoFolder -File | ForEach-Object {
+# Loop through all video files in the folder, oldest first
+Get-ChildItem -Path $videoFolder -File | Sort-Object LastWriteTime | ForEach-Object {
     $file = $_
 
     # Skip files already in the output folder
@@ -77,19 +80,29 @@ Get-ChildItem -Path $videoFolder -File | ForEach-Object {
             $audioStreams = & ffprobe -i "`"$inputFile`"" -show_entries stream=codec_type -select_streams a -v 0 -of compact | Measure-Object -Line | Select-Object -ExpandProperty Lines
             if ($debug) { Write-Host "[DEBUG] Number of audio streams found: $audioStreams" }
 
+            # Get each input audio stream's original bitrate so re-encoded output matches it
+            $defaultBitrate = "160k"
+            $audioBitrates = & ffprobe -i "`"$inputFile`"" -select_streams a -show_entries stream=bit_rate -v 0 -of csv="p=0"
+            $audioBitrates = @($audioBitrates | ForEach-Object {
+                if ($_ -match '^\d+$' -and [int64]$_ -gt 0) { "$([math]::Round([int64]$_ / 1000))k" } else { $defaultBitrate }
+            })
+            if ($debug) { Write-Host "[DEBUG] Original audio bitrates: $($audioBitrates -join ', ')" }
+
             # Build the filter complex string based on number of audio streams
             $filterComplex = ""
             $mergeInputs = ""
 
             # Define volume multiplier for each track (adjust these values as needed)
             # In OBS, I use:
-            #   Track 1 = All audio
-            #   Track 2 = Discord Audio
-            #   Track 3 = Microphone Audio
-            $volumeMultipliers = @(0.8) # Example: Track 1 = 50%, Track 2 = 70%, Track 3 = 90%
+            #   Track 1 = All audio sources combined
+            #   Track 2 = Desktop Audio
+            #   Track 3 = Discord Audio
+            #   Track 4 = Game Audio
+            #   Track 5 = Self Mic
+            $volumeMultipliers = @(0, 0.8, 1.0, 0.8, 1.0) # Example: Track 1 = 50%, Track 2 = 70%, Track 3 = 90%
 
             for ($i = 0; $i -lt $audioStreams; $i++) {
-                $volumeMultiplier = if ($i -lt $volumeMultipliers.Length) { $volumeMultipliers[$i] } else { 0.0 }
+                $volumeMultiplier = if ($i -lt $volumeMultipliers.Length) { $volumeMultipliers[$i] } else { 1.0 }
                 
                 if ($i -eq 0) {
                     # Apply only volume adjustment to the first track
@@ -103,9 +116,14 @@ Get-ChildItem -Path $videoFolder -File | ForEach-Object {
                 $mergeInputs += "[a$i]"
             }
 
-            # Add just the amerge if we have audio streams
             if ($audioStreams -gt 0) {
-                $filterComplex += "$mergeInputs amerge=inputs=$audioStreams[aout]"
+                if ($keepTracksSeparate) {
+                    # Trim trailing separator left over from the per-track filter chain
+                    $filterComplex = $filterComplex.TrimEnd(';')
+                } else {
+                    # Merge all processed tracks down into a single output track
+                    $filterComplex += "$mergeInputs amerge=inputs=$audioStreams[aout]"
+                }
             }
 
             # Construct the FFmpeg command string
@@ -122,14 +140,46 @@ Get-ChildItem -Path $videoFolder -File | ForEach-Object {
             if ($audioStreams -gt 0) {
                 $ffmpegArgs += @(
                     "-filter_complex", "`"$filterComplex`"",
-                    "-map", "0:v",
-                    "-map", "[aout]"
+                    "-map", "0:v"
+                )
+
+                if ($keepTracksSeparate) {
+                    for ($i = 0; $i -lt $audioStreams; $i++) {
+                        $ffmpegArgs += @("-map", "[a$i]")
+                    }
+                } else {
+                    $ffmpegArgs += @("-map", "[aout]")
+                }
+
+                # loudnorm silently bumps its output sample rate to 192kHz; pin it back down
+                # to the source rate so we don't ship unnecessarily bloated/upsampled audio.
+                $ffmpegArgs += @("-ar", "48000")
+            }
+
+            if ($keepTracksSeparate) {
+                # Use uncompressed PCM for separate tracks. Vegas Pro's MP4 demuxer does not
+                # reliably decode multiple discrete AAC audio streams in one container (tracks
+                # come in silent even though the encoded data is fine), but it handles
+                # multi-stream PCM correctly. No bitrate setting needed since PCM is uncompressed.
+                for ($i = 0; $i -lt $audioStreams; $i++) {
+                    $ffmpegArgs += @(
+                        "-c:a:$i", "pcm_s16le",
+                        "-ac:a:$i", "2"
+                    )
+                }
+            } else {
+                # Merged single track: use the highest original bitrate among the inputs
+                $mergedBitrate = if ($audioBitrates.Length -gt 0) {
+                    ($audioBitrates | ForEach-Object { [int]($_ -replace 'k$', '') } | Measure-Object -Maximum).Maximum.ToString() + "k"
+                } else { $defaultBitrate }
+                $ffmpegArgs += @(
+                    "-c:a", "aac",
+                    "-b:a", "$mergedBitrate",
+                    "-ac", "2"
                 )
             }
 
             $ffmpegArgs += @(
-                "-c:a", "aac",
-                "-ac", "2",
                 "-movflags", "+faststart",
                 "`"$outputFile`""
             )

@@ -83,13 +83,13 @@ Get-ChildItem -Path $videoFolder -File | ForEach-Object {
 
             # Define volume multiplier for each track (adjust these values as needed)
             # In OBS, I use:
-            #   Track 1 = All audio
+            #   Track 1 = Game/Desktop Audio
             #   Track 2 = Discord Audio
             #   Track 3 = Microphone Audio
-            $volumeMultipliers = @(0.8) # Example: Track 1 = 50%, Track 2 = 70%, Track 3 = 90%
+            $volumeMultipliers = @(0.8,0,0,0) # Example: Track 1 = 50%, Track 2 = 70%, Track 3 = 90%
 
             for ($i = 0; $i -lt $audioStreams; $i++) {
-                $volumeMultiplier = if ($i -lt $volumeMultipliers.Length) { $volumeMultipliers[$i] } else { 0.0 }
+                $volumeMultiplier = if ($i -lt $volumeMultipliers.Length) { $volumeMultipliers[$i] } else { 1.0 }
                 
                 if ($i -eq 0) {
                     # Apply only volume adjustment to the first track
