@@ -99,7 +99,7 @@ Get-ChildItem -Path $videoFolder -File | Sort-Object LastWriteTime | ForEach-Obj
             #   Track 3 = Discord Audio
             #   Track 4 = Game Audio
             #   Track 5 = Self Mic
-            $volumeMultipliers = @(0, 0.8, 1.0, 0.8, 1.0) # Example: Track 1 = 50%, Track 2 = 70%, Track 3 = 90%
+            $volumeMultipliers = @(1.0, 0.8, 1.0, 0.8, 1.0) # Example: Track 1 = 50%, Track 2 = 70%, Track 3 = 90%
 
             for ($i = 0; $i -lt $audioStreams; $i++) {
                 $volumeMultiplier = if ($i -lt $volumeMultipliers.Length) { $volumeMultipliers[$i] } else { 1.0 }
